@@ -53,6 +53,7 @@ Everything's serverless — no server running 24/7. Lambda only fires when someo
 - **Webhook was "verified" but no messages ever came through** — spent a while confused because even Meta's own test-send tool didn't work. Turns out verifying the callback URL isn't enough — you also have to explicitly call `POST /{WABA_ID}/subscribed_apps` to actually link the app to receive events. Not obvious from the UI at all.
 - **One blank string broke everything** — added a list of keywords for human handoff, and accidentally left an empty string `""` in there instead of `"help"`. In Python, `"" in any_string` is always `True`, so literally every message matched and got routed to "talk to a human" instead of the actual menu. One character, entire bot broken. Fixed by restoring the missing word.
 - **Region mismatch** — created my DynamoDB tables in the wrong AWS region from my Lambda function. Fixed by just recreating them in the same region. Lesson: keep everything in one region unless you have a real reason not to.
+- **Increased Security** - Added a signature verification to lambda to match against every webhook POST 
 
 ## Setup (if you want to run your own copy)
 
