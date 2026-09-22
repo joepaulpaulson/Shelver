@@ -1,1 +1,6 @@
 
+__pycache__/
+*.pyc
+.env
+.aws-sam/
+node_modules/
