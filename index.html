@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shelver Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #222; }
+  header { background: #1f7a4d; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; }
+  main { max-width: 900px; margin: 20px auto; padding: 0 16px; }
+  .card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  h2 { margin-top: 0; font-size: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; }
+  th { background: #fafafa; }
+  input { padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
+  input.num { width: 70px; }
+  button { padding: 6px 12px; border: 0; border-radius: 4px; background: #1f7a4d; color: #fff; cursor: pointer; }
+  button.secondary { background: #fff; color: #1f7a4d; border: 1px solid #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  #login { max-width: 320px; margin: 60px auto; }
+  #login input { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+  #msg { margin: 10px 0; font-size: 14px; min-height: 18px; }
+  .err { color: #b00020; } .ok { color: #1f7a4d; }
+  .scroll { overflow-x: auto; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Shelver Dashboard</h1>
+  <button id="logoutBtn" class="secondary hidden">Log out</button>
+</header>
+
+<main>
+  <div id="msg"></div>
+
+  <!-- Login -->
+  <div id="login" class="card">
+    <h2>Log in</h2>
+    <input id="email" type="email" placeholder="Email" autocomplete="username">
+    <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+    <input id="newPassword" type="password" placeholder="Choose a new password" class="hidden" autocomplete="new-password">
+    <button id="loginBtn">Log in</button>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="app" class="hidden">
+    <div class="card">
+      <h2>Orders</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Time</th><th>Item</th><th>Qty</th><th>Total</th><th>Customer</th></tr></thead>
+          <tbody id="ordersBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Products</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Name</th><th>Category</th><th>Price (₹)</th><th>Stock</th><th></th></tr></thead>
+          <tbody id="productsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ---- Fill these in ----
+const API_URL   = "your-invoke-url";      // no trailing slash
+const REGION    = "region";
+const CLIENT_ID = "PASTE_YOUR_APP_CLIENT_ID_HERE";
+// -----------------------
+
+let idToken = null;
+let pendingSession = null; // used for the first-login "set new password" step
+
+const $ = id => document.getElementById(id);
+
+function showMsg(text, isError) {
+  const el = $("msg");
+  el.textContent = text || "";
+  el.className = isError ? "err" : "ok";
+}
+
+async function cognito(target, payload) {
+  const res = await fetch(`https://cognito-idp.${REGION}.amazonaws.com/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-amz-json-1.1",
+      "X-Amz-Target": `AWSCognitoIdentityProviderService.${target}`
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || data.__type || "Login failed");
+  return data;
+}
+
+async function login() {
+  showMsg("");
+  $("loginBtn").disabled = true;
+  try {
+    let result;
+    if (pendingSession) {
+      result = await cognito("RespondToAuthChallenge", {
+        ClientId: CLIENT_ID,
+        ChallengeName: "NEW_PASSWORD_REQUIRED",
+        Session: pendingSession,
+        ChallengeResponses: {
+          USERNAME: $("email").value.trim(),
+          NEW_PASSWORD: $("newPassword").value
+        }
+      });
+    } else {
+      result = await cognito("InitiateAuth", {
+        ClientId: CLIENT_ID,
+        AuthFlow: "USER_PASSWORD_AUTH",
+        AuthParameters: { USERNAME: $("email").value.trim(), PASSWORD: $("password").value }
+      });
+    }
+
+    if (result.ChallengeName === "NEW_PASSWORD_REQUIRED") {
+      pendingSession = result.Session;
+      $("newPassword").classList.remove("hidden");
+      showMsg("First login: please choose a new password, then click Log in again.");
+      return;
+    }
+
+    idToken = result.AuthenticationResult.IdToken;
+    pendingSession = null;
+    $("login").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    $("logoutBtn").classList.remove("hidden");
+    await loadAll();
+  } catch (e) {
+    showMsg(e.message, true);
+  } finally {
+    $("loginBtn").disabled = false;
+  }
+}
+
+function logout() {
+  idToken = null;
+  pendingSession = null;
+  $("app").classList.add("hidden");
+  $("logoutBtn").classList.add("hidden");
+  $("login").classList.remove("hidden");
+  $("password").value = "";
+  $("newPassword").value = "";
+  $("newPassword").classList.add("hidden");
+  showMsg("");
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(API_URL + path, {
+    ...options,
+    headers: { "Authorization": idToken, "Content-Type": "application/json" }
+  });
+  if (res.status === 401) {
+    logout();
+    throw new Error("Session expired. Please log in again.");
+  }
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return res.json();
+}
+
+function cell(text) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  return td;
+}
+
+async function loadAll() {
+  try {
+    const [orders, products] = await Promise.all([api("/orders"), api("/products")]);
+    renderOrders(orders);
+    renderProducts(products);
+  } catch (e) {
+    showMsg(e.message, true);
+  }
+}
+
+function renderOrders(orders) {
+  const body = $("ordersBody");
+  body.textContent = "";
+  if (!orders.length) {
+    const tr = document.createElement("tr");
+    const td = cell("No orders yet.");
+    td.colSpan = 5;
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+  orders.forEach(o => {
+    const tr = document.createElement("tr");
+    tr.appendChild(cell(o.timestamp ? new Date(o.timestamp * 1000).toLocaleString() : ""));
+    tr.appendChild(cell(o.product_name || ""));
+    tr.appendChild(cell(o.quantity));
+    tr.appendChild(cell("₹" + o.total_price));
+    tr.appendChild(cell(o.customer_phone || ""));
+    body.appendChild(tr);
+  });
+}
+
+function renderProducts(products) {
+  const body = $("productsBody");
+  body.textContent = "";
+  products.sort((a, b) => (a.Category || "").localeCompare(b.Category || "") || (a.Name || "").localeCompare(b.Name || ""));
+  products.forEach(p => {
+    const tr = document.createElement("tr");
+    tr.appendChild(cell(p.Name || ""));
+    tr.appendChild(cell(p.Category || ""));
+
+    const priceTd = document.createElement("td");
+    const priceIn = document.createElement("input");
+    priceIn.type = "number"; priceIn.min = "0"; priceIn.className = "num"; priceIn.value = p.Price;
+    priceTd.appendChild(priceIn);
+    tr.appendChild(priceTd);
+
+    const stockTd = document.createElement("td");
+    const stockIn = document.createElement("input");
+    stockIn.type = "number"; stockIn.min = "0"; stockIn.className = "num"; stockIn.value = p.Stock ?? 0;
+    stockTd.appendChild(stockIn);
+    tr.appendChild(stockTd);
+
+    const btnTd = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.textContent = "Save";
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        await api("/products/" + encodeURIComponent(p.product_id), {
+          method: "PATCH",
+          body: JSON.stringify({ Price: Number(priceIn.value), Stock: Number(stockIn.value) })
+        });
+        showMsg(`Saved ${p.Name}.`);
+      } catch (e) {
+        showMsg(e.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+    btnTd.appendChild(btn);
+    tr.appendChild(btnTd);
+    body.appendChild(tr);
+  });
+}
+
+$("loginBtn").onclick = login;
+$("logoutBtn").onclick = logout;
+$("password").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+</script>
+</body>
+</html>
