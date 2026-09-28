@@ -71,7 +71,7 @@ You'll need:
    - `OWNER_PHONE_NUMBER` — the number that gets order/handoff alerts
 4. Your WhatsApp access token stored in SSM Parameter Store at `/shelver/whatsapp_token`
 5. For the dashboard: a Cognito User Pool (email/password login, no client secret) and an S3 bucket with static website hosting enabled
-6. Dashboard frontend needs three values filled in at the top of its script: your API Gateway Invoke URL, your AWS region, and your Cognito App Client ID
+6. Dashboard frontend (index.html)needs three values filled in at the top of its script: your API Gateway Invoke URL, your AWS region, and your Cognito App Client ID
 
 ## What's next
 
