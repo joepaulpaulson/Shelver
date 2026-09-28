@@ -11,6 +11,8 @@ Built solo as a way to learn AWS properly and have something real to show for it
 - Orders something → stock gets checked and updated, store owner gets a WhatsApp alert
 - Can ask quick questions (hours, delivery, location) anytime
 - Can ask for a human, and the bot goes quiet until reset
+- Owner dashboard - A separate webpage to modify items and view orders
+- Signed Webhook verification to reject spoofed requests 
 
 ## How it works 
 
@@ -40,6 +42,8 @@ Everything's serverless — no server running 24/7. Lambda only fires when someo
 - DynamoDB for data
 - SSM Parameter Store for the WhatsApp access token 
 - Meta WhatsApp Cloud API
+- AWS Cognito — dashboard authentication
+- AWS S3 — static hosting for the dashboard frontend
 
 ## Why some things were built the way they were
 
@@ -53,7 +57,9 @@ Everything's serverless — no server running 24/7. Lambda only fires when someo
 - **Webhook was "verified" but no messages ever came through** — spent a while confused because even Meta's own test-send tool didn't work. Turns out verifying the callback URL isn't enough — you also have to explicitly call `POST /{WABA_ID}/subscribed_apps` to actually link the app to receive events. Not obvious from the UI at all.
 - **One blank string broke everything** — added a list of keywords for human handoff, and accidentally left an empty string `""` in there instead of `"help"`. In Python, `"" in any_string` is always `True`, so literally every message matched and got routed to "talk to a human" instead of the actual menu. One character, entire bot broken. Fixed by restoring the missing word.
 - **Region mismatch** — created my DynamoDB tables in the wrong AWS region from my Lambda function. Fixed by just recreating them in the same region. Lesson: keep everything in one region unless you have a real reason not to.
-- **Increased Security** - Added a signature verification to lambda to match against every webhook POST 
+- **Increased Security** - Added a signature verification to lambda to match against every webhook POST
+- **Bedrock kept returning "Operation not allowed" even with correct IAM permissions.**-My aws account had on demand quota of 0 in every models .Requested a quota increase via aws support
+- **Forgot the password I set for my own test user** on the first login attempt. Easiest fix was just deleting and recreating the Cognito user with a temporary password I actually wrote down.
 
 ## Setup (if you want to run your own copy)
 
@@ -64,6 +70,8 @@ You'll need:
    - `PHONE_NUMBER_ID` — from your Meta WhatsApp setup
    - `OWNER_PHONE_NUMBER` — the number that gets order/handoff alerts
 4. Your WhatsApp access token stored in SSM Parameter Store at `/shelver/whatsapp_token`
+5. For the dashboard: a Cognito User Pool (email/password login, no client secret) and an S3 bucket with static website hosting enabled
+6. Dashboard frontend needs three values filled in at the top of its script: your API Gateway Invoke URL, your AWS region, and your Cognito App Client ID
 
 ## What's next
 
@@ -72,7 +80,7 @@ Working through this roughly in order:
 - [x] Fixed stock/inventory bugs, duplicate order protection — done
 - [ ] Infrastructure as code (so this isn't just console-clicking)
 - [ ] AI fallback for messages the menu logic can't handle (AWS Bedrock)
-- [ ] Simple dashboard for the store owner to see orders / edit stock
+- [x] Simple dashboard for the store owner to see orders / edit stock
 - [ ] Basic monitoring/alerts
 
 ## Things I'd do differently if I rebuilt this
